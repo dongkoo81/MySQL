@@ -3,11 +3,11 @@ import time
 
 # MySQL 설정
 MYSQL_CONFIG = {
-    'host': 'reader7.cmjs2qxaojzn.ap-northeast-2.rds.amazonaws.com',
+    'host': ' ',
     'user': 'admin',
-    'password': 'Exaehdrn3#',
+    'password': '',
     'database': 'test',
-    'ssl_ca': '/home/ec2-user/environment/mysql/coupang/ap-northeast-2-bundle.pem',
+    'ssl_ca': '~/ap-northeast-2-bundle.pem',
    'tls_versions': ['TLSv1.3'] 
 }
 

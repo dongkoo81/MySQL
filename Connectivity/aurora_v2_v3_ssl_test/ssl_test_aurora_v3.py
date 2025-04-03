@@ -6,12 +6,12 @@ import statistics
 
 # MySQL 8.0 설정
 MYSQL_CONFIG = {
-    'host': 'reader7.cmjs2qxaojzn.ap-northeast-2.rds.amazonaws.com',
-    'user': 'admin',
-    'password': 'Exaehdrn3#',
+    'host': '',
+    'user': '',
+    'password': '',
     'database': 'test',
     'version': '8.0',
-    'ssl_ca': '/home/ec2-user/environment/mysql/coupang/ap-northeast-2-bundle.pem',
+    'ssl_ca': '~/ap-northeast-2-bundle.pem',
     'tls_versions': ['TLSv1.3'] 
 }
 
