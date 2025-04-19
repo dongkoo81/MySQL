@@ -1,14 +1,59 @@
+"""
+MySQL 동시성 부하 테스트 스크립트 v2
+
+이 스크립트는 MySQL/Aurora 데이터베이스에 대한 동시 접속 부하 테스트를 수행하며,
+모든 스레드가 정확히 동시에 쿼리를 실행하도록 Barrier와 Event를 사용합니다.
+
+주요 기능:
+- ThreadPoolExecutor를 사용한 멀티스레드 쿼리 실행
+- Barrier와 Event를 통한 정확한 동시 실행 제어
+- MySQL Performance Schema를 통한 상세 성능 분석:
+  * 쿼리 실행 지연시간 (평균, 최소, 최대, p95, p99, p999)
+  * 스레드별 QPS (Queries Per Second) 분석
+  * 단계별(Stage) 성능 분석
+  * 대기(Wait) 이벤트 분석
+
+설정:
+- MYSQL_CONFIG: 데이터베이스 연결 정보
+  * host: Aurora 클러스터 엔드포인트
+  * user: DB 사용자
+  * password: 비밀번호
+  * database: 데이터베이스명
+
+- TEST_CONFIG: 테스트 설정
+  * num_threads: 동시 실행 스레드 수
+  * iterations: 각 스레드당 쿼리 실행 횟수
+  * query: 실행할 쿼리문
+
+사용방법:
+1. MYSQL_CONFIG에 데이터베이스 접속 정보 설정
+2. TEST_CONFIG에서 원하는 테스트 파라미터 설정
+3. 스크립트 실행
+
+요구사항:
+- Python 3.6+
+- mysql-connector-python
+- Performance Schema 접근 권한
+
+주의사항: 
+- 프로덕션 환경에서 실행 시 주의 필요
+- 높은 동시성 설정은 데이터베이스 성능에 영향을 줄 수 있음
+- Performance Schema 모니터링으로 인한 추가 부하 발생 가능
+"""
+
+
 import mysql.connector
 import time
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier, Event
 
 # MySQL 접속 설정
 MYSQL_CONFIG = {
-    'host': 'coupang-select1-test1.cluster-ro-cmjs2qxaojzn.ap-northeast-2.rds.amazonaws.com',          # Aurora 엔드포인트
-    'user': 'admin',                 # DB 사용자
-    'password': 'Exaehdrn3#',             # 비밀번호
-    'database': 'test'     # 데이터베이스명   
+    'host': '   ',          # Aurora 엔드포인트
+    'user': '  ',                 # DB 사용자
+    'password': '  ',             # 비밀번호
+    'database': 'test'    # 데이터베이스명 , 변경 필요 시 schema_name = 'test' 같이 변경 
 }
 
 # 테스트 설정
@@ -21,6 +66,8 @@ TEST_CONFIG = {
 class ConnectionTester:
     def __init__(self, db_config):
         self.db_config = db_config
+        self.barrier = None
+        self.start_event = Event()
 
     def create_connection(self):
         return mysql.connector.connect(**self.db_config)
@@ -57,6 +104,18 @@ class ConnectionTester:
             cursor.execute("TRUNCATE TABLE performance_schema.events_stages_history")
             cursor.execute("TRUNCATE TABLE performance_schema.events_waits_history")
             
+            # 설정 확인
+            cursor.execute("""
+                SELECT * FROM performance_schema.setup_instruments 
+                WHERE (NAME LIKE 'wait/%' OR NAME LIKE 'stage/%' OR NAME LIKE 'statement/%')
+                AND ENABLED = 'NO'
+            """)
+            disabled = cursor.fetchall()
+            if disabled:
+                print("Warning: Some instruments are still disabled:")
+                for d in disabled:
+                    print(f"- {d[0]}")
+                    
             cursor.close()
             conn.close()
             print("Performance schema setup completed")
@@ -64,16 +123,21 @@ class ConnectionTester:
         except Exception as e:
             print(f"Failed to setup performance schema: {e}")
 
-    def execute_queries(self, thread_id):
+    def connection_worker(self, thread_id, query, iterations, barrier):
         try:
             conn = self.create_connection()
             cursor = conn.cursor()
             
+            print(f"Thread {thread_id} ready")
+            barrier.wait()
+            
+            self.start_event.wait()
+            
             success_count = 0
             start_time = time.time()
             
-            for i in range(TEST_CONFIG['iterations']):
-                cursor.execute(TEST_CONFIG['query'])
+            for i in range(iterations):
+                cursor.execute(query)
                 cursor.fetchall()
                 success_count += 1
             
@@ -83,7 +147,7 @@ class ConnectionTester:
             conn.close()
             
             return success_count, duration
-            
+                
         except Exception as e:
             print(f"Thread {thread_id} failed: {e}")
             return 0, 0
@@ -96,15 +160,28 @@ class ConnectionTester:
         # Performance Schema 설정
         self.setup_performance_schema()
         
+        self.barrier = Barrier(TEST_CONFIG['num_threads'])
+        
         total_success = 0
         thread_results = []
-        start_time = time.time()
-        
+
         with ThreadPoolExecutor(max_workers=TEST_CONFIG['num_threads']) as executor:
             futures = [
-                executor.submit(self.execute_queries, i) 
-                for i in range(TEST_CONFIG['num_threads'])
+                executor.submit(
+                    self.connection_worker, 
+                    i, 
+                    TEST_CONFIG['query'],
+                    TEST_CONFIG['iterations'],
+                    self.barrier
+                ) for i in range(TEST_CONFIG['num_threads'])
             ]
+            
+            time.sleep(2)
+            
+            print("\nAll threads ready, executing queries simultaneously...")
+            
+            start_time = time.time()
+            self.start_event.set()
             
             for future in futures:
                 try:
@@ -113,14 +190,21 @@ class ConnectionTester:
                     thread_results.append((queries, duration))
                 except Exception as e:
                     print(f"Thread execution failed: {e}")
-        
-        end_time = time.time()
-        total_duration = end_time - start_time
-        
-        print(f"\nTest completed:")
-        print(f"Total successful queries: {total_success:,}")
-        print(f"Total time: {total_duration:.2f} seconds")
-        print(f"Average QPS: {total_success/total_duration:.2f}")
+            
+            end_time = time.time()
+            execution_time = end_time - start_time
+            
+            per_thread_qps = [queries/duration for queries, duration in thread_results if duration > 0]
+            
+            print(f"\nTest completed:")
+            print(f"Total successful queries: {total_success:,}")
+            print(f"Total time: {execution_time:.2f} seconds")
+            print(f"Average QPS: {total_success/execution_time:.2f}")
+            
+            if per_thread_qps:
+                print(f"Average QPS per thread: {sum(per_thread_qps)/len(per_thread_qps):.2f}")
+                print(f"Min QPS per thread: {min(per_thread_qps):.2f}")
+                print(f"Max QPS per thread: {max(per_thread_qps):.2f}")
 
 def main():
     start_time = time.time()
@@ -135,9 +219,9 @@ def main():
         cursor = conn.cursor()
 
         # 조회 전 테이블 초기화
-     #   cursor.execute("TRUNCATE TABLE performance_schema.events_statements_history_long")
-     #   cursor.execute("TRUNCATE TABLE performance_schema.events_stages_history_long")
-     #   cursor.execute("TRUNCATE TABLE performance_schema.events_waits_history_long")
+      #  cursor.execute("TRUNCATE TABLE performance_schema.events_statements_history_long")
+      #  cursor.execute("TRUNCATE TABLE performance_schema.events_stages_history_long")
+      #  cursor.execute("TRUNCATE TABLE performance_schema.events_waits_history_long")
 
         # Summary by digest 결과
         cursor.execute("""
