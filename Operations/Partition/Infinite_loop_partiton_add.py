@@ -14,10 +14,10 @@ import sys
 
 # 전역 변수 설정
 START_DATE = datetime(1980, 1, 1)  # 시작 일자
-HOST = "sk-test.cluster-cmjs2qxaojzn.ap-northeast-2.rds.amazonaws.com"
-USER = "admin"
-PASSWORD = "Exaehdrn3#"
-DATABASE = "test5"
+HOST = "   "
+USER = "  "
+PASSWORD = "  "
+DATABASE = "  "
 
 def setup_test_tables(conn, cursor):
     """과거 시점으로 테스트 테이블들 생성"""
