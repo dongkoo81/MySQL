@@ -14,7 +14,7 @@ import time
 from queue import Queue
 
 # 💡 메모리 사용량 설정
-TARGET_DATA_GB = 4          # 목표 순수 데이터 크기 (GB)
+TARGET_DATA_GB = 4          # 목표 사용 메모리 크기 (GB)
 NUMBER_OF_WORKERS = 10        # 워커(세션) 수
 BUFFER_OVERHEAD_PER_WORKER_GB = 0.1  # 워커당 예상 버퍼 오버헤드 (GB)
 
