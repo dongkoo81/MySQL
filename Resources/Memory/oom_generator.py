@@ -5,7 +5,6 @@ Changes:
 - 메모리 테이블 설정 개선
 - 테이블 가득 참 에러 처리
 - 세션 변수 설정 방식 개선
-Date: 2024-01-17
 """
 
 import mysql.connector
