@@ -30,10 +30,10 @@ SLEEP_INTERVAL = 0.1          # 반복 간격
 MAX_BYTES_LIMIT = int(MEMORY_PER_WORKER_GB * 1024 * 1024 * 1024)  # int로 변환
 
 # DB 연결 정보
-HOST = "sk-test.cluster-cmjs2qxaojzn.ap-northeast-2.rds.amazonaws.com"
-USER = "admin"
-PASSWORD = "Exaehdrn3#"
-DATABASE = "test4"
+HOST = "   "
+USER = "  "
+PASSWORD = "   "
+DATABASE = "   "
 
 
 def set_oom_session(cursor):
