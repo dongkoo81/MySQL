@@ -1,0 +1,487 @@
+-- 데이터베이스 생성
+CREATE DATABASE test_db1;
+CREATE DATABASE test_db2;
+
+-- 테스트용 계정 생성 및 권한 부여
+CREATE USER 'app_user'@'%' IDENTIFIED BY 'app123!@#';
+CREATE USER 'read_user'@'%' IDENTIFIED BY 'read123!@#';
+
+-- app_user 권한 설정
+GRANT ALL PRIVILEGES ON test_db1.* TO 'app_user'@'%';
+GRANT SELECT, INSERT, UPDATE ON test_db2.* TO 'app_user'@'%';
+
+-- read_user 권한 설정
+GRANT SELECT ON test_db1.* TO 'read_user'@'%';
+GRANT SELECT ON test_db2.* TO 'read_user'@'%';
+
+USE test_db1;
+
+-- 테이블 생성
+CREATE TABLE users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50),
+    email VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_username (username),
+    INDEX idx_email (email)
+);
+
+CREATE TABLE orders (
+    order_id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT,
+    amount DECIMAL(10,2),
+    status ENUM('pending', 'completed', 'cancelled'),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE order_logs (
+    log_id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT,
+    action VARCHAR(50),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 데이터 삽입
+INSERT INTO users (username, email) VALUES
+    ('user1', 'user1@test.com'),
+    ('user2', 'user2@test.com'),
+    ('user3', 'user3@test.com'),
+    ('user4', 'user4@test.com'),
+    ('user5', 'user5@test.com');
+
+INSERT INTO orders (user_id, amount, status) VALUES
+    (1, 100.50, 'completed'),
+    (1, 200.75, 'pending'),
+    (2, 300.25, 'completed'),
+    (3, 150.00, 'cancelled'),
+    (4, 500.99, 'completed');
+
+-- 뷰 생성
+CREATE VIEW user_orders_view AS
+SELECT u.username, COUNT(o.order_id) as order_count, SUM(o.amount) as total_amount
+FROM users u
+LEFT JOIN orders o ON u.id = o.user_id
+GROUP BY u.id, u.username;
+
+-- 트리거 생성
+DELIMITER //
+CREATE TRIGGER after_order_insert 
+AFTER INSERT ON orders
+FOR EACH ROW
+BEGIN
+    INSERT INTO order_logs (order_id, action)
+    VALUES (NEW.order_id, 'created');
+END;//
+DELIMITER ;
+
+USE test_db2;
+
+CREATE TABLE products (
+    product_id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100),
+    price DECIMAL(10,2),
+    stock INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO products (name, price, stock) VALUES
+    ('Product 1', 99.99, 100),
+    ('Product 2', 149.99, 50),
+    ('Product 3', 199.99, 75);
+
+ create index ix_products on products(name);
+
+
+-- 백업 및 복원 스크립트 (별도로 실행)
+
+-- 1. 데이터베이스 백업
+# mysqldump -h [host] -u [user] -p \
+# --databases test_db1 test_db2 \
+# --routines --triggers --events \
+# > database_backup.sql
+
+-- 2. 사용자 계정 및 권한 백업
+# mysqldump -h [host] -u [user] -p \
+# --no-data mysql \
+# --tables user db tables_priv columns_priv procs_priv \
+# > user_grants.sql
+
+-- 복원 확인을 위한 테스트 쿼리
+SELECT 'Checking user permissions:' as 'Test';
+SHOW GRANTS FOR 'app_user'@'%';
+SHOW GRANTS FOR 'read_user'@'%';
+
+SELECT 'Database test_db1 contents:' as 'Test';
+USE test_db1;
+SELECT * FROM users;
+SELECT * FROM orders;
+SELECT * FROM user_orders_view;
+
+SELECT 'Database test_db2 contents:' as 'Test';
+USE test_db2;
+SELECT * FROM products;
+
+
+
+
+########
+
+
+-- 전체 사용자 계정 리스트
+SELECT 'Total User Accounts' as 'Check', 
+    USER, HOST, authentication_string 
+FROM mysql.user 
+WHERE USER NOT IN ('mysql.sys', 'mysql.session', 'mysql.infoschema')
+ORDER BY USER;
+
++---------------------+--------------------+-----------+-------------------------------------------+
+| Check               | USER               | HOST      | authentication_string                     |
++---------------------+--------------------+-----------+-------------------------------------------+
+| Total User Accounts | admin              | %         | *9E93016E523FA474BCF6D89792A36C7C75242457 |
+| Total User Accounts | app_user           | %         | *A20511F53D5472A96F722BF0C9B223DD9186A922 |
+| Total User Accounts | rds_superuser_role | %         |                                           |
+| Total User Accounts | rdsadmin           | localhost |                                           |
+| Total User Accounts | read_user          | %         | *4C7A9A0644430F5DEB3EAF63B9F8B3801EFB7B66 |
++---------------------+--------------------+-----------+-------------------------------------------+
+5 rows in set (0.00 sec)
+
+
+-- 데이터베이스별 권한
+SELECT 'Database Privileges' as 'Check',
+    USER, HOST, DB, Select_priv, Insert_priv, Update_priv, Delete_priv
+FROM mysql.db
+WHERE USER NOT IN ('mysql.sys', 'mysql.session', 'mysql.infoschema')
+ORDER BY USER, DB;
+
++---------------------+-----------+------+----------+-------------+-------------+-------------+-------------+
+| Check               | USER      | HOST | DB       | Select_priv | Insert_priv | Update_priv | Delete_priv |
++---------------------+-----------+------+----------+-------------+-------------+-------------+-------------+
+| Database Privileges | app_user  | %    | test_db1 | Y           | Y           | Y           | Y           |
+| Database Privileges | app_user  | %    | test_db2 | Y           | Y           | Y           | N           |
+| Database Privileges | read_user | %    | test_db1 | Y           | N           | N           | N           |
+| Database Privileges | read_user | %    | test_db2 | Y           | N           | N           | N           |
++---------------------+-----------+------+----------+-------------+-------------+-------------+-------------+
+4 rows in set (0.00 sec)
+
+
+-- 테이블별 권한
+SELECT 'Table Privileges' as 'Check',
+    USER, HOST, DB, TABLE_NAME, TABLE_PRIV
+FROM mysql.tables_priv
+ORDER BY USER, DB, TABLE_NAME;
+
++------------------+---------------+-----------+-------+------------+------------+
+| Check            | USER          | HOST      | DB    | TABLE_NAME | TABLE_PRIV |
++------------------+---------------+-----------+-------+------------+------------+
+| Table Privileges | mysql.session | localhost | mysql | user       | Select     |
+| Table Privileges | mysql.sys     | localhost | sys   | sys_config | Select     |
++------------------+---------------+-----------+-------+------------+------------+
+2 rows in set (0.00 sec)
+
+-- 2. 데이터베이스 객체 수 확인
+-- 데이터베이스 객체 수 종합 확인
+SELECT 
+    t.TABLE_SCHEMA as 'Database',
+    SUM(CASE WHEN TABLE_TYPE = 'BASE TABLE' THEN 1 ELSE 0 END) as 'Tables',
+    SUM(CASE WHEN TABLE_TYPE = 'VIEW' THEN 1 ELSE 0 END) as 'Views',
+    COUNT(DISTINCT s.INDEX_NAME) as 'Indexes',
+    (SELECT COUNT(*) 
+     FROM information_schema.ROUTINES r 
+     WHERE r.ROUTINE_SCHEMA = t.TABLE_SCHEMA 
+     AND ROUTINE_TYPE = 'PROCEDURE') as 'Procedures',
+    (SELECT COUNT(*) 
+     FROM information_schema.ROUTINES r 
+     WHERE r.ROUTINE_SCHEMA = t.TABLE_SCHEMA 
+     AND ROUTINE_TYPE = 'FUNCTION') as 'Functions',
+    (SELECT COUNT(*) 
+     FROM information_schema.TRIGGERS tr 
+     WHERE tr.TRIGGER_SCHEMA = t.TABLE_SCHEMA) as 'Triggers',
+    (SELECT COUNT(*) 
+     FROM information_schema.EVENTS e 
+     WHERE e.EVENT_SCHEMA = t.TABLE_SCHEMA) as 'Events'
+FROM information_schema.TABLES t
+LEFT JOIN information_schema.STATISTICS s 
+    ON t.TABLE_SCHEMA = s.TABLE_SCHEMA 
+    AND t.TABLE_NAME = s.TABLE_NAME
+WHERE t.TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+GROUP BY t.TABLE_SCHEMA
+ORDER BY t.TABLE_SCHEMA;
+
+
++----------+--------+-------+---------+------------+-----------+----------+--------+
+| Database | Tables | Views | Indexes | Procedures | Functions | Triggers | Events |
++----------+--------+-------+---------+------------+-----------+----------+--------+
+| test_db1 |      6 |     1 |       4 |          0 |         0 |        1 |      0 |
+| test_db2 |      2 |     0 |       2 |          0 |         0 |        0 |      0 |
++----------+--------+-------+---------+------------+-----------+----------+--------+
+2 rows in set (0.02 sec)
+
+
+
+
+-- 데이터베이스별 테이블 수
+SELECT 'Tables Count per Database' as 'Check',
+    TABLE_SCHEMA as 'Database',
+    COUNT(*) as 'Table Count'
+FROM information_schema.TABLES
+WHERE TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+GROUP BY TABLE_SCHEMA
+ORDER BY TABLE_SCHEMA;
+
+-- 뷰 개수
+SELECT 'Views Count per Database' as 'Check',
+    TABLE_SCHEMA as 'Database',
+    COUNT(*) as 'View Count'
+FROM information_schema.VIEWS
+WHERE TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+GROUP BY TABLE_SCHEMA
+ORDER BY TABLE_SCHEMA;
+
+-- 저장 프로시저 개수
+SELECT 'Stored Procedures Count per Database' as 'Check',
+    ROUTINE_SCHEMA as 'Database',
+    COUNT(*) as 'Procedure Count'
+FROM information_schema.ROUTINES
+WHERE ROUTINE_TYPE = 'PROCEDURE'
+AND ROUTINE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+GROUP BY ROUTINE_SCHEMA
+ORDER BY ROUTINE_SCHEMA;
+
+-- 함수 개수
+SELECT 'Functions Count per Database' as 'Check',
+    ROUTINE_SCHEMA as 'Database',
+    COUNT(*) as 'Function Count'
+FROM information_schema.ROUTINES
+WHERE ROUTINE_TYPE = 'FUNCTION'
+AND ROUTINE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+GROUP BY ROUTINE_SCHEMA
+ORDER BY ROUTINE_SCHEMA;
+
+-- 트리거 개수
+SELECT 'Triggers Count per Database' as 'Check',
+    TRIGGER_SCHEMA as 'Database',
+    COUNT(*) as 'Trigger Count'
+FROM information_schema.TRIGGERS
+WHERE TRIGGER_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+GROUP BY TRIGGER_SCHEMA
+ORDER BY TRIGGER_SCHEMA;
+
+-- 이벤트 개수
+SELECT 'Events Count per Database' as 'Check',
+    EVENT_SCHEMA as 'Database',
+    COUNT(*) as 'Event Count'
+FROM information_schema.EVENTS
+WHERE EVENT_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+GROUP BY EVENT_SCHEMA
+ORDER BY EVENT_SCHEMA;
+
+-- 3. 테이블별 레코드 수 확인
+SELECT 'TABLE RECORDS COUNT' as 'CHECK TYPE';
+
+SELECT 
+    TABLE_SCHEMA as 'Database',
+    TABLE_NAME as 'Table',
+    TABLE_ROWS as 'Approximate Row Count'
+FROM information_schema.TABLES
+WHERE TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+AND TABLE_TYPE = 'BASE TABLE'
+ORDER BY TABLE_SCHEMA, TABLE_NAME;
+
+    -> ORDER BY TABLE_SCHEMA, TABLE_NAME;
++----------+------------+-----------------------+
+| Database | Table      | Approximate Row Count |
++----------+------------+-----------------------+
+| test_db1 | order_logs |                     0 |
+| test_db1 | orders     |                     5 |
+| test_db1 | users      |                     5 |
+| test_db2 | products   |                     3 |
++----------+------------+-----------------------+
+4 rows in set (0.01 sec)
+
+
+-- 4. 인덱스 정보 확인
+SELECT 'INDEX INFORMATION' as 'CHECK TYPE';
+
+SELECT 
+    TABLE_SCHEMA as 'Database',
+    TABLE_NAME as 'Table',
+    INDEX_NAME as 'Index',
+    COUNT(*) as 'Column Count'
+FROM information_schema.STATISTICS
+WHERE TABLE_SCHEMA NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+GROUP BY TABLE_SCHEMA, TABLE_NAME, INDEX_NAME
+ORDER BY TABLE_SCHEMA, TABLE_NAME, INDEX_NAME;
+
++----------+------------+--------------+--------------+
+| Database | Table      | Index        | Column Count |
++----------+------------+--------------+--------------+
+| test_db1 | order_logs | PRIMARY      |            1 |
+| test_db1 | orders     | PRIMARY      |            1 |
+| test_db1 | orders     | user_id      |            1 |
+| test_db1 | users      | idx_email    |            1 |
+| test_db1 | users      | idx_username |            1 |
+| test_db1 | users      | PRIMARY      |            1 |
+| test_db2 | products   | ix_products  |            1 |
+| test_db2 | products   | PRIMARY      |            1 |
++----------+------------+--------------+--------------+
+
+
+
+###############################
+
+-- 현재 타임존 설정 확인
+SELECT @@global.time_zone, @@session.time_zone;
+
+-- 시간 관련 시스템 변수들 확인
+SHOW VARIABLES LIKE '%time_zone%';
+
+
+-- 시스템 시간과 MySQL 시간 비교
+
+
+-- 타임존 테이블 정보 확인
+SELECT * FROM mysql.time_zone_name;
+
+
+######
+
+현재 
+rds-mysql-8034-old.cmjs2qxaojzn.ap-northeast-2.rds.amazonaws.com
+
+rds-mysql-8034.cmjs2qxaojzn.ap-northeast-2.rds.amazonaws.com
+rds-mysql-8034-old.cmjs2qxaojzn.ap-northeast-2.rds.amazonaws.com
+target.cmjs2qxaojzn.ap-northeast-2.rds.amazonaws.com
+
+
+rds-mysql-8034.cmjs2qxaojzn.ap-northeast-2.rds.amazonaws.com
+rds-mysql-8034.cmjs2qxaojzn.ap-northeast-2.rds.amazonaws.com
+
+rds-mysql-8034-old.cmjs2qxaojzn.ap-northeast-2.rds.amazonaws.com
+
+rds-mysql-8034.cmjs2qxaojzn.ap-northeast-2.rds.amazonaws.com
+
+
+-- 1. 데이터베이스 백업
+mysqldump -h source.cmjs2qxaojzn.ap-northeast-2.rds.amazonaws.com -u admin -p  --databases test_db1 test_db2 \
+   --single-transaction --set-gtid-purged=OFF --routines --triggers --events > database_backup.sql
+
+
+mysqldump -h source.cmjs2qxaojzn.ap-northeast-2.rds.amazonaws.com -u admin -p  --databases test_db1 test_db2 \
+   --single-transaction --set-gtid-purged=OFF --routines --triggers --events \
+  | gzip | aws s3 cp - s3://rds-backup-dk/mysql/database_backup.gz
+
+
+
+-- 2. 사용자 계정 및 권한 백업
+mysqldump -h source.cmjs2qxaojzn.ap-northeast-2.rds.amazonaws.com -u admin -p  \
+   --no-data mysql --single-transaction  --set-gtid-purged=OFF  \
+   --tables user db tables_priv columns_priv procs_priv   > user_grants.sql
+
+
+---------
+
+# 데이터베이스 복원
+mysql -h target.cmjs2qxaojzn.ap-northeast-2.rds.amazonaws.com -u admin -p < database_backup.sql
+
+# 사용자 계정 및 권한 복원
+mysql -h target.cmjs2qxaojzn.ap-northeast-2.rds.amazonaws.com -u admin -p < user_grants.sql
+
+# 권한 새로고침
+mysql -h target.cmjs2qxaojzn.ap-northeast-2.rds.amazonaws.com -u admin -p -e "FLUSH PRIVILEGES;"
+
+
+aws s3 cp s3://rds-backup-dk/mysql/rds-backup.gz - | gunzip | mysql -h localhost -u admin -p'Exaehdrn3#' 
+
+
+
+
+mysql> SELECT CONCAT('CREATE USER ''', user, '''@''', host, ''' IDENTIFIED BY ''password'';') as user_creation 
+      FROM mysql.user WHERE user NOT IN ('mysql.sys', 'mysql.session', 'mysql.infoschema', 'rdsadmin');
++----------------------------------------------------------------+
+| user_creation                                                  |
++----------------------------------------------------------------+
+| CREATE USER 'admin'@'%' IDENTIFIED BY 'password';              |
+| CREATE USER 'app_user'@'%' IDENTIFIED BY 'password';           |
+| CREATE USER 'rds_superuser_role'@'%' IDENTIFIED BY 'password'; |
+| CREATE USER 'read_user'@'%' IDENTIFIED BY 'password';          |
++----------------------------------------------------------------+
+4 rows in set (0.00 sec)
+
+mysql> SELECT DISTINCT
+    ->     CONCAT('SHOW GRANTS FOR ''', user, '''@''', host, ''';') as show_grants_stmt
+    -> FROM mysql.user 
+    -> WHERE user NOT IN ('mysql.sys', 'mysql.session', 'mysql.infoschema', 'rdsadmin');
++-------------------------------------------+
+| show_grants_stmt                          |
++-------------------------------------------+
+| SHOW GRANTS FOR 'admin'@'%';              |
+| SHOW GRANTS FOR 'app_user'@'%';           |
+| SHOW GRANTS FOR 'rds_superuser_role'@'%'; |
+| SHOW GRANTS FOR 'read_user'@'%';          |
++-------------------------------------------+
+4 rows in set (0.00 sec)
+
+mysql> SHOW GRANTS FOR 'app_user'@'%';\G
++----------------------------------------------------------------+
+| Grants for app_user@%                                          |
++----------------------------------------------------------------+
+| GRANT USAGE ON *.* TO `app_user`@`%`                           |\
+| GRANT ALL PRIVILEGES ON `test_db1`.* TO `app_user`@`%`         |
+| GRANT SELECT, INSERT, UPDATE ON `test_db2`.* TO `app_user`@`%` |
++----------------------------------------------------------------+
+3 rows in set (0.00 sec)
+
+mysql> SHOW GRANTS FOR 'read_user'@'%';
++-------------------------------------------------+
+| Grants for read_user@%                          |
++-------------------------------------------------+
+| GRANT USAGE ON *.* TO `read_user`@`%`           |
+| GRANT SELECT ON `test_db1`.* TO `read_user`@`%` |
+| GRANT SELECT ON `test_db2`.* TO `read_user`@`%` |
++-------------------------------------------------+
+
+
+
+
+SELECT 
+    CONCAT(
+        'CREATE USER ''', u.user, '''@''', u.host, ''' ',
+        'IDENTIFIED WITH mysql_native_password AS ''', u.authentication_string, ''';'
+    ) as create_user_sql
+FROM mysql.user u
+WHERE u.user NOT IN ('mysql.sys', 'mysql.session', 'mysql.infoschema', 'rdsadmin','rds_superuser_role','admin');
+
+
++-------------------------------------------------------------------------------------------------------------------+
+| create_user_sql                                                                                                   |
++-------------------------------------------------------------------------------------------------------------------+
+CREATE USER 'app_user'@'%' IDENTIFIED WITH mysql_native_password AS '*A20511F53D5472A96F722BF0C9B223DD9186A922';  
+CREATE USER 'read_user'@'%' IDENTIFIED WITH mysql_native_password AS '*4C7A9A0644430F5DEB3EAF63B9F8B3801EFB7B66'; 
+
+2 rows in set (0.01 sec)
+
+
+
+
+###################
+
+
+
+-- 복원 확인을 위한 테스트 쿼리
+SELECT 'Checking user permissions:' as 'Test';
+SHOW GRANTS FOR 'app_user'@'%';
+SHOW GRANTS FOR 'read_user'@'%';
+
+SELECT 'Database test_db1 contents:' as 'Test';
+USE test_db1;
+SELECT * FROM users;
+SELECT * FROM orders;
+SELECT * FROM user_orders_view;
+
+SELECT 'Database test_db2 contents:' as 'Test';
+USE test_db2;
+SELECT * FROM products;
+
+
